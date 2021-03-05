@@ -78,6 +78,31 @@ function types.is_condition(t)
 
 end
 
+function types.is_numeric(t)
+    local tag = t._tag
+    if     tag == "types.T.Integer" or
+           tag == "types.T.Float"
+    then
+        return true
+
+    elseif tag == "types.T.Any" or
+           tag == "types.T.Void" or
+           tag == "types.T.Nil" or
+           tag == "types.T.Boolean" or
+           tag == "types.T.String" or
+           tag == "types.T.Function" or
+           tag == "types.T.Array" or
+           tag == "types.T.Table" or
+           tag == "types.T.Record"
+    then
+        return false
+
+    else
+        typedecl.tag_error(tag)
+    end
+
+end
+
 function types.is_indexable(t)
     local tag = t._tag
     if     tag == "types.T.Table" or

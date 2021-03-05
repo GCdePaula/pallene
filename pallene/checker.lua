@@ -7,6 +7,7 @@ local ast = require "pallene.ast"
 local builtins = require "pallene.builtins"
 local symtab = require "pallene.symtab"
 local types = require "pallene.types"
+local ftypes = require "pallene.ftypes"
 local typedecl = require "pallene.typedecl"
 local util = require "pallene.util"
 
@@ -100,8 +101,12 @@ end
 --
 
 function Checker:init()
-    self.symbol_table = symtab.new() -- string => checker.Name
-    self.ret_types_stack = {}        -- stack of types.T
+    self.symbol_table = symtab.new()  -- string => checker.Name
+    self.ret_types_stack = {}         -- stack of types.T
+
+    self.fsymbol_table = symtab.new() -- string => checker.Name
+    self.ffunctions = {}              -- string => types.T
+
     return self
 end
 
@@ -120,7 +125,10 @@ declare_type("Name", {
     Global   = { "decl" },
     Function = { "decl" },
     Builtin  = { "name" },
-    Module   = { "name" }
+    Module   = { "name" },
+
+    FType    = { "ftyp" },
+    FFI      = { "name" },
 })
 
 function Checker:add_type(name, typ)
@@ -151,6 +159,16 @@ end
 function Checker:add_module(name)
     assert(type(name) == "string")
     self.symbol_table:add_symbol(name, checker.Name.Module(name))
+end
+
+function Checker:add_ftype(name, ftyp)
+    assert(typedecl.match_tag(ftyp._tag, "ftypes.FT"))
+    self.fsymbol_table:add_symbol(name, checker.Name.FType(ftyp))
+end
+
+function Checker:add_ffunc(name)
+    assert(type(name) == "string")
+    self.symbol_table:add_symbol(name, checker.Name.FFI(name))
 end
 
 --
@@ -207,11 +225,34 @@ function Checker:from_ast_type(ast_typ)
     end
 end
 
+
+function Checker:from_ast_ftype(ast_ftyp)
+    -- if not ast_ftyp then
+    --     return ftypes.FT.FVoid()
+    -- end
+
+    local tag = ast_ftyp._tag
+    if tag == "ast.FType.Name" then
+        local name = ast_ftyp.name
+        local cname = self.fsymbol_table:find_symbol(name)
+        if not cname then
+            scope_error(ast_ftyp.loc,  "type '%s' is not declared", name)
+        elseif cname._tag == "checker.Name.FType" then
+            return cname.ftyp
+        end
+        type_error(ast_ftyp.loc, "'%s' isn't a type", name)
+
+    else
+        typedecl.tag_error(tag)
+    end
+end
+
 local letrec_groups = {
     ["ast.Toplevel.Var"]       = "Var",
     ["ast.Toplevel.Func"]      = "Func",
     ["ast.Toplevel.Typealias"] = "Type",
     ["ast.Toplevel.Record"]    = "Type",
+    ["ast.Toplevel.FFunc"]     = "FFunc",
 }
 
 function Checker:check_program(prog_ast)
@@ -246,6 +287,13 @@ function Checker:check_program(prog_ast)
     self:add_type("integer", types.T.Integer())
     --self:add_type("string",  types.T.String()) -- treated as a "module" because of string.char
 
+    -- Add primitive foreign types
+    for name,ft in pairs(ftypes.primitives()) do
+        self:add_ftype(name, ft)
+    end
+    self:add_module("ffi")
+
+
     -- Add builtins to symbol table. The order does not matter because they are distinct.
     for name, _ in pairs(builtins.functions) do
         self:add_builtin(name, name)
@@ -253,6 +301,7 @@ function Checker:check_program(prog_ast)
     for name in pairs(builtins.modules) do
         self:add_module(name)
     end
+
 
     -- Group mutually-recursive definitions
     local tl_groups = {}
@@ -323,6 +372,7 @@ function Checker:check_program(prog_ast)
                     self:check_exp_verify(tl_func.value, tl_func.decl._type, "toplevel function")
             end
 
+
         elseif group_kind == "Type" then
 
             -- TODO: Implement recursive and mutually recursive types
@@ -348,6 +398,49 @@ function Checker:check_program(prog_ast)
                     typedecl.tag_error(tag)
                 end
             end
+
+
+        elseif group_kind == "FFunc" then
+            for _, tl_ffunc in ipairs(tl_group) do
+                assert(tl_ffunc._tag == "ast.Toplevel.FFunc")
+                local name = tl_ffunc.name.value
+                self:add_ffunc("ffi." .. name)
+
+                local ast_args = tl_ffunc.fargs
+                local ast_ret = tl_ffunc.fret
+
+                local farg_types = {}
+                local fret_type = ast_ret and self:from_ast_ftype(ast_ret)
+
+                local pln_args = {}
+                local pln_rets = {}
+                if fret_type then
+                    table.insert(pln_rets, ftypes.pln_type(fret_type))
+                end
+
+                for _,ast_arg in ipairs(ast_args) do
+                    local ft = self:from_ast_ftype(ast_arg.ftype)
+                    local mod = ftypes.modifier(ast_arg.modifier)
+                    local farg = ftypes.FArg.Arg(ft, mod)
+                    table.insert(farg_types, farg)
+
+                    local pln_arg_type = ftypes.pln_type(ft)
+                    if ftypes.include_args(mod) then
+                        table.insert(pln_args, pln_arg_type)
+                    end
+                    if ftypes.include_rets(mod) then
+                        table.insert(pln_rets, pln_arg_type)
+                    end
+                end
+
+                local pln_type = types.T.Function(pln_args, pln_rets)
+                local ffunc = ftypes.FT.FFunction(pln_type, farg_types, fret_type)
+                tl_ffunc._type = pln_type
+                tl_ffunc._ftype = ffunc
+                self.ffunctions[name] = ffunc
+
+            end
+
 
         else
             error("impossible")
@@ -532,6 +625,10 @@ function Checker:check_stat(stat)
                     type_error(stat.loc,
                         "attempting to assign to builtin function %s",
                         stat.vars[i].name)
+                elseif ntag == "checker.Name.FFI" then
+                    type_error(stat.loc,
+                        "attempting to assign to foreign function %s",
+                        stat.vars[i].name)
                 end
             end
             stat.exps[i] = self:check_exp_verify(stat.exps[i], stat.vars[i]._type, "assignment")
@@ -590,6 +687,9 @@ function Checker:check_var(var)
             var._type = assert(cname.decl._type)
         elseif cname._tag == "checker.Name.Builtin" then
             var._type = assert(builtins.functions[cname.name])
+        elseif cname._tag == "checker.Name.FFI" then
+            var._type = assert(self.ffunctions[cname.name].pln_func_type)
+            var._ftype = assert(self.ffunctions[cname.name])
         elseif cname._tag == "checker.Name.Module" then
             -- Module names can appear only in the dot notation.
             -- For example, a statement like `local x = io` is illegal.
@@ -613,17 +713,23 @@ function Checker:check_var(var)
             local function_name = var.name
             local internal_name = module_name .. "." .. function_name
 
+            local ftyp = self.ffunctions[function_name]
             local typ = builtins.functions[internal_name]
+                or (ftyp and ftyp.pln_func_type)
+
             if typ then
                 local cname = self.symbol_table:find_symbol(internal_name)
                 local flat_var = ast.Var.Name(var.exp.loc, internal_name)
                 flat_var._name = cname
                 flat_var._type = typ
+                flat_var._ftype = ftyp
                 var = flat_var
+
             else
                 type_error(var.loc,
                     "unknown function '%s'", internal_name)
             end
+
         else
             var.exp = self:check_exp_synthesize(var.exp)
             local ind_type = var.exp._type

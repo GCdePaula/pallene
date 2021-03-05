@@ -92,6 +92,13 @@ function ToIR:convert_toplevel(prog_ast)
             local typ = tl_node._type
             self.rec_id_of_typ[typ] = ir.add_record_type(self.module, typ)
 
+
+        elseif tag == "ast.Toplevel.FFunc" then
+            local typ = tl_node._type.pln_func_type
+            local name = tl_node.name.value
+            local loc = tl_node.loc
+            ir.add_ffunction(self.module, loc, name, typ)
+
         else
             typedecl.tag_error(tag)
         end
@@ -239,7 +246,7 @@ function ToIR:convert_stat(cmds, stat)
             -- end
             -- ```
 
-            
+
             local ipairs_args = exps[2].call_exp.args
             assert(#ipairs_args == 1)
             assert(#decls == 2)
@@ -254,7 +261,7 @@ function ToIR:convert_stat(cmds, stat)
             local v_inum = ir.add_local(self.func, "$"..decls[1].name.."_num", types.T.Integer())
             local start = ir.Value.Integer(1)
             table.insert(cmds, ir.Cmd.Move(stat.loc, v_inum, start))
-        
+
             -- body of the while loop.
             local body = {}
 
@@ -294,7 +301,7 @@ function ToIR:convert_stat(cmds, stat)
             table.insert(body, ir.Cmd.Binop(stat.loc, v_inum, "IntAdd", ir.Value.LocalVar(v_inum), loop_step))
 
             table.insert(cmds, ir.Cmd.Loop(ir.Cmd.Seq(body)))
-        
+
         else
 
             -- Regular for-in loops are desugared into regurlar loops before compiling.
@@ -621,6 +628,7 @@ end
 -- intermediate computations to the @cmds list.
 function ToIR:exp_to_value(cmds, exp, _recursive)
     local tag = exp._tag
+
     if     tag == "ast.Exp.Nil" then
         return ir.Value.Nil()
 
@@ -650,6 +658,9 @@ function ToIR:exp_to_value(cmds, exp, _recursive)
             elseif cname._tag == "checker.Name.Function" then
                 local id = self.fun_id_of_decl[cname.decl]
                 return ir.Value.Function(id)
+
+            elseif cname._tag == "checker.Name.FFI" then
+                return ir.Value.FFunction(cname.name)
 
             elseif cname._tag == "checker.Name.Builtin" then
                 error("not implemented")
@@ -770,7 +781,8 @@ function ToIR:exp_to_assignment(cmds, dst, exp)
         local f_val
         if  cname and (
                 cname._tag == "checker.Name.Builtin" or
-                cname._tag == "checker.Name.Function") then
+                cname._tag == "checker.Name.Function" or
+                cname._tag == "checker.Name.FFI") then
             f_val = false
         else
             f_val = self:exp_to_value(cmds, exp.exp)
@@ -812,6 +824,12 @@ function ToIR:exp_to_assignment(cmds, dst, exp)
         elseif cname and cname._tag == "checker.Name.Function" then
             local f_id = assert(self.fun_id_of_decl[cname.decl])
             table.insert(cmds, ir.Cmd.CallStatic(loc, f_typ, dsts, f_id, xs))
+
+
+        elseif cname and cname._tag == "checker.Name.FFI" then
+            local ftype = assert(exp.exp.var._ftype)
+            local cmd = ir.Cmd.ForeignCall(loc, ftype, cname.name, xs, dsts)
+            table.insert(cmds, cmd)
 
         else
             table.insert(cmds, ir.Cmd.CallDyn(loc, f_typ, dsts, f_val, xs))

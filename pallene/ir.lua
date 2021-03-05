@@ -30,6 +30,7 @@ function ir.Module()
     return {
         record_types       = {}, -- list of Type
         functions          = {}, -- list of ir.Function
+        ffunctions         = {}, -- (name => ir.FFunction)
         globals            = {}, -- list of ir.VarDecl
         exported_functions = {}, -- list of function ids
         exported_globals   = {}, -- list of variable ids
@@ -53,6 +54,15 @@ function ir.Function(loc, name, typ)
     }
 end
 
+function ir.FFunction(loc, name, pln_type, ftype)
+    return {
+        loc = loc,           -- Location
+        name = name,         -- string
+        pln_type = pln_type, -- Pallene Type
+        ftype = ftype,       -- Foreign Type
+    }
+end
+
 ---
 --- Mutate modules
 --
@@ -64,6 +74,11 @@ end
 
 function ir.add_function(module, loc, name, typ)
     table.insert(module.functions, ir.Function(loc, name, typ))
+    return #module.functions
+end
+
+function ir.add_ffunction(module, loc, name, pln_type, ftype)
+    module.ffunctions[name] = ir.FFunction(loc, name, pln_type, ftype)
     return #module.functions
 end
 
@@ -108,6 +123,9 @@ declare_type("Value", {
     String     = {"value"},
     LocalVar   = {"id"},
     Function   = {"id"},
+    FFunction  = {"name"},
+
+    FFunction  = {"id"},
 })
 
 -- [IMPORTANT!] After any changes to this data type, update the src_fields,
@@ -153,6 +171,9 @@ local ir_cmd_constructors = {
     -- (dst is false if the return value is void, or unused)
     CallStatic  = {"loc", "f_typ", "dsts",  "f_id", "srcs"},
     CallDyn     = {"loc", "f_typ", "dsts", "src_f", "srcs"},
+
+    -- Foreign Function
+    ForeignCall = {"loc", "ftype", "name", "srcs", "dsts"},
 
     -- Builtin operations
     BuiltinIoWrite    = {"loc",         "srcs"},
@@ -212,7 +233,7 @@ function ir.get_srcs(cmd)
 end
 
 local  dst_fields = { "dst" }
-local dsts_fields = { "dsts"}
+local dsts_fields = { "dsts" }
 
 function ir.get_dsts(cmd)
     local dsts = {}
@@ -237,8 +258,8 @@ local other_fields = {
     "loc",
     "global_id",
     "op",
-    "src_typ", "dst_typ", "rec_typ", "f_typ",
-    "field_name",
+    "src_typ", "dst_typ", "rec_typ", "f_typ", "ftype",
+    "field_name", "name",
     "f_id",
     "cmds", "then_", "else_",
     "typ", "loop_var", "body",

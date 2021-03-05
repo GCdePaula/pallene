@@ -151,6 +151,27 @@ function Parser:Toplevel()
         self:region_end()
         return ast.Toplevel.Record(start.loc, id.value, fields)
 
+
+    elseif self:peek("foreign") then
+        self:region_begin()
+        local start    = self:e()
+        local id       = self:e("NAME")
+        local params   = self:FArgList()
+
+        local rt_type = false
+        if self:peek(":") then
+            self:e()
+            rt_type = self:FType()
+        end
+        self:region_end()
+
+        return ast.Toplevel.FFunc(start.loc, id, params, rt_type)
+
+    -- elseif self:peek("foreigntype") then
+    --     self:region_begin()
+    --     self:region_end()
+
+
     else
         local visibility
         if self:peek("local") or self:peek("export") then
@@ -297,6 +318,43 @@ function Parser:SimpleType()
             local _   = self:e("}", open)
             return ast.Type.Array(open.loc, typ)
         end
+    else
+        self:unexpected_token_error("a type")
+    end
+end
+
+
+function Parser:FArgList()
+    local ts = {}
+    local open = self:e("(");
+    if not self:peek(")") then
+        table.insert(ts, self:FArg())
+        while self:try(",") do
+            table.insert(ts, self:FArg())
+        end
+    end
+    self:e(")", open)
+    return ts
+end
+
+function Parser:FArg()
+    if self:peek("NAME") and
+    not (self:doublepeek(",") or self:doublepeek(")")) then
+        local mod_tok = self:e("NAME")
+        local ftype = self:FType()
+        return ast.FArg.Arg(ftype.loc, ftype, mod_tok.value)
+
+    else
+        local ftype = self:FType()
+        return ast.FArg.Arg(ftype.loc, ftype, false)
+
+    end
+end
+
+function Parser:FType()
+    if self:peek("NAME") then
+        local tok = self:e()
+        return ast.FType.Name(tok.loc, tok.value)
     else
         self:unexpected_token_error("a type")
     end

@@ -7,6 +7,7 @@ local C = require "pallene.C"
 local gc = require "pallene.gc"
 local ir = require "pallene.ir"
 local types = require "pallene.types"
+local ftypes = require "pallene.ftypes"
 local typedecl = require "pallene.typedecl"
 local util = require "pallene.util"
 
@@ -1348,6 +1349,128 @@ gen_cmd["CallDyn"] = function(self, cmd, func)
         nrets = C.integer(#f_typ.ret_types),
         restore_stack = self:restorestack(),
     })
+end
+
+gen_cmd["ForeignCall"] = function(self, cmd, _func)
+    local function translate_to_c(dst, from_plntype, to_ctype, src)
+        -- local tag = to_type._tag
+        if ftypes.is_numeric(to_ctype) then
+            local cast = ftypes.to_ctype(to_ctype)
+            local mov = util.render(
+                [[ $dst = ($cast) $src ]],
+                { dst = dst, cast = cast, src = src }
+            )
+            return mov
+        else
+            error("translate_to_c tag " .. tag .. " unimplemented")
+        end
+    end
+
+    local function translate_to_pln(dst, from_ctype, to_plntype, src)
+        -- local tag = to_type._tag
+        if types.is_numeric(to_plntype) then
+            local cast = ctype(to_plntype)
+            local mov = util.render(
+                [[ $dst = ($cast) $src ]],
+                { dst = dst, cast = cast, src = src }
+            )
+            return mov
+        else
+            error("translate_to_pln tag " .. tag .. " unimplemented")
+        end
+    end
+
+    local code = {}
+
+    -- Declare C arg vars and save their names.
+    local fargs = cmd.ftype.farg_types
+    local c_arg_vars = {}
+    for k,farg in ipairs(fargs) do
+        local arg_var = "ffi_arg_" .. (k-1)
+        table.insert(c_arg_vars, arg_var)
+        local decl = C.declaration(
+            ftypes.to_ctype(farg.ftype),
+            arg_var
+        )
+        table.insert(code, decl)
+    end
+
+    -- Declare C ret var and save its name.
+    local fret = cmd.ftype.fret_type
+    local ret_var = false
+    if fret then
+        ret_var = "ffi_ret"
+        local decl = C.declaration(
+            ftypes.to_ctype(fret),
+            ret_var
+        )
+        table.insert(code, decl)
+
+    end
+
+    -- Translate all srcs and move the result to their respective C arg var.
+    -- Also save all extra return values.
+    local extra_rets = {}
+    local src_idx = 1
+    for k,farg in ipairs(fargs) do
+        local var_name = c_arg_vars[k]
+        if ftypes.include_args(farg.mod) then
+            local src = self:c_var(cmd.srcs[src_idx].id)
+            local translate = translate_to_c(var_name, nil, farg.ftype, src)
+            table.insert(code, translate)
+            src_idx = src_idx + 1
+        end
+
+        if ftypes.include_rets(farg.mod) then
+          table.insert(extra_rets, var_name)
+
+        end
+    end
+
+    -- Write arg list.
+    local arg_list = {}
+    for k,farg in ipairs(fargs) do
+        local var_name = c_arg_vars[k]
+        if ftypes.pass_address(farg.mod) then
+            table.insert(arg_list, "&" .. var_name)
+        else
+            table.insert(arg_list, var_name)
+        end
+    end
+
+    -- Write foreign call, assigning result to ret_var if needed.
+    local f_name = cmd.name:gsub("ffi.", "")
+    local call_exp = f_name .. "(" .. table.concat(arg_list, ", ") .. ")"
+    local call
+    if ret_var then
+        call = util.render(
+            [[ $dst = $src ]],
+            { dst = ret_var, src = call_exp }
+        )
+    else
+        call = call_exp
+    end
+    table.insert(code, call)
+
+    -- Translate back to dsts.
+    local dsts_idx = 1
+    if ret_var then
+        local pln_ret1 = self:c_var(assert(cmd.dsts[1]))
+        local pln_type = cmd.ftype.pln_func_type.ret_types[1]
+        local translate = translate_to_pln(pln_ret1, nil, pln_type, ret_var)
+        table.insert(code, translate)
+        dsts_idx = 2
+    end
+    while cmd.dsts[dsts_idx] do
+        local dst = self:c_var(assert(cmd.dsts[dsts_idx]))
+        local pln_type = cmd.ftype.pln_func_type.ret_types[dsts_idx]
+        local src = extra_rets[dsts_idx-1]
+        local translate = translate_to_pln(dst, nil, pln_type, src)
+        table.insert(code, translate)
+        dsts_idx = dsts_idx + 1
+    end
+
+    return "{\n" .. table.concat(code, ";\n") .. ";\n}"
 end
 
 gen_cmd["BuiltinIoWrite"] = function(self, cmd, _func)

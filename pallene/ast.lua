@@ -23,11 +23,22 @@ declare_type("Type", {
     Function = {"loc", "arg_types", "ret_types"},
 })
 
+declare_type("FType", {
+    Name = {"loc", "name"},
+})
+
+declare_type("FArg", {
+    Arg = {"loc", "ftype", "modifier"},
+})
+
 declare_type("Toplevel", {
     Func      = {"loc", "visibility", "decl", "value"},
     Var       = {"loc", "visibility", "decls", "values"},
     Typealias = {"loc", "name", "type",},
     Record    = {"loc", "name", "field_decls"},
+
+    FFunc     = {"loc", "name", "fargs", "fret"},
+    -- FType     = {"loc", "name", "ftype"},
 })
 
 declare_type("Decl", {
@@ -99,6 +110,8 @@ function ast.toplevel_names(tl_node)
     elseif tag == "ast.Toplevel.Record" then
         table.insert(names, tl_node.name)
     elseif tag == "ast.Toplevel.Builtin" then
+        table.insert(names, tl_node.name)
+    elseif tag == "ast.Toplevel.FFunc" then
         table.insert(names, tl_node.name)
     else
         typedecl.tag_error(tag)
