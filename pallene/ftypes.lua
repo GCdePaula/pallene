@@ -33,7 +33,7 @@ declare_type("FT", {
     FFunction  = {"pln_func_type", "farg_types", "fret_type"},
 
     String     = {},
-    -- Pointer    = {},
+    Pointer    = {"name"},
 
     -- Array      = {"elem"},
     -- Struct     = {"fields"},
@@ -165,7 +165,7 @@ function ftypes.pln_type(ft)
         return T.Integer()
 
     elseif tag == "ftypes.FT.String" then
-        return T.Nilable(T.String())
+        return T.String()
 
 
     -- elseif tag == "ftypes.FT.FVoid" then
@@ -186,6 +186,34 @@ function ftypes.pln_type(ft)
     else
         typedecl.tag_error(tag)
     end
+end
+
+function ftypes.is_nilable(ft, mod)
+    local tag = ft._tag
+
+    if     tag == "ftypes.FT.CFloat" or
+           tag == "ftypes.FT.CDouble" or
+
+           tag == "ftypes.FT.CShort" or
+           tag == "ftypes.FT.CInt" or
+           tag == "ftypes.FT.CLong" or
+           tag == "ftypes.FT.CLongLong" or
+
+           tag == "ftypes.FT.CUShort" or
+           tag == "ftypes.FT.CUInt" or
+           tag == "ftypes.FT.CULong" or
+           tag == "ftypes.FT.CULongLong" then
+        return false
+
+    elseif tag == "ftypes.FT.String" then
+        return true
+
+    elseif tag == "ftypes.FT.Pointer" then
+        return true
+    else
+        typedecl.tag_error(tag)
+    end
+
 end
 
 function ftypes.to_ctype(ft)

@@ -426,7 +426,11 @@ function Checker:check_program(prog_ast)
 
                     local pln_arg_type = ftypes.pln_type(ft)
                     if ftypes.include_args(mod) then
-                        table.insert(pln_args, pln_arg_type)
+                        if ftypes.is_nilable(ft, mod) then
+                            table.insert(pln_args, types.T.Nilable(pln_arg_type))
+                        else
+                            table.insert(pln_args, pln_arg_type)
+                        end
                     end
                     if ftypes.include_rets(mod) then
                         table.insert(pln_rets, pln_arg_type)

@@ -1355,6 +1355,7 @@ gen_cmd["ForeignCall"] = function(self, cmd, func)
     local function translate_to_c(dst, to_ctype, src)
         local tag = to_ctype._tag
         local src_value = self:c_value(src)
+
         if ftypes.is_numeric(to_ctype) then
             local cast = ftypes.to_ctype(to_ctype)
             local mov = util.render(
@@ -1364,13 +1365,21 @@ gen_cmd["ForeignCall"] = function(self, cmd, func)
             return mov
 
         elseif tag == "ftypes.FT.String" then
-            if src._tag == "ir.Value.String" then
+            local src_tag = src._tag
+            if src_tag == "ir.Value.LocalVar" then
+                src_tag = func.vars[src.id].typ._tag
+            end
+
+            if src_tag == "ir.Value.String" or
+               src_tag == "types.T.String" then
                 local mov = util.render(
                     [[ $dst = getstr($src)]],
                     { dst = dst, src = src_value }
                     )
                 return mov
-            elseif src._tag == "ir.Value.Nil" then
+
+            elseif src_tag == "ir.Value.Nil" or
+                   src_tag == "types.T.Nil" then
                 local mov = util.render(
                     [[ $dst = NULL]], { dst = dst }
                 )
