@@ -94,10 +94,11 @@ function ToIR:convert_toplevel(prog_ast)
 
 
         elseif tag == "ast.Toplevel.FFunc" then
-            local typ = tl_node._type.pln_func_type
+            local typ = tl_node._type
+            local ftyp = tl_node._ftype
             local name = tl_node.name.value
             local loc = tl_node.loc
-            ir.add_ffunction(self.module, loc, name, typ)
+            ir.add_ffunction(self.module, loc, name, typ, ftyp)
 
         else
             typedecl.tag_error(tag)

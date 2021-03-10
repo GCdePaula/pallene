@@ -30,9 +30,9 @@ declare_type("FT", {
     CULongLong = {},
 
     -- FVoid      = {},
-    FFunction  = {"pln_func_type", "farg_types", "fret_type"}
+    FFunction  = {"pln_func_type", "farg_types", "fret_type"},
 
-    -- String     = {},
+    String     = {},
     -- Pointer    = {},
 
     -- Array      = {"elem"},
@@ -66,6 +66,8 @@ local primitives = {
     ["uint"]      = ftypes.FT.CUInt,
     ["ulong"]     = ftypes.FT.CULong,
     ["ulonglong"] = ftypes.FT.CULongLong,
+
+    ["string"] = ftypes.FT.String,
 }
 
 function ftypes.primitives()
@@ -149,7 +151,7 @@ function ftypes.pln_type(ft)
     local tag = ft._tag
     if     tag == "ftypes.FT.CFloat" or
            tag == "ftypes.FT.CDouble" then
-           return T.Float()
+        return T.Float()
 
     elseif tag == "ftypes.FT.CShort" or
            tag == "ftypes.FT.CInt" or
@@ -160,7 +162,10 @@ function ftypes.pln_type(ft)
            tag == "ftypes.FT.CUInt" or
            tag == "ftypes.FT.CULong" or
            tag == "ftypes.FT.CULongLong" then
-       return T.Integer()
+        return T.Integer()
+
+    elseif tag == "ftypes.FT.String" then
+        return T.Nilable(T.String())
 
 
     -- elseif tag == "ftypes.FT.FVoid" then
@@ -191,12 +196,14 @@ function ftypes.to_ctype(ft)
     elseif tag == "ftypes.FT.CShort"     then return "short"
     elseif tag == "ftypes.FT.CInt"       then return "int"
     elseif tag == "ftypes.FT.CLong"      then return "long"
-    elseif tag == "ftypes.FT.CLongLong"  then return "longlong"
+    elseif tag == "ftypes.FT.CLongLong"  then return "long long"
 
-    elseif tag == "ftypes.FT.CUShort"    then return "ushort"
-    elseif tag == "ftypes.FT.CUInt"      then return "uint"
-    elseif tag == "ftypes.FT.CULong"     then return "ulong"
-    elseif tag == "ftypes.FT.CULongLong" then return "ulonglong"
+    elseif tag == "ftypes.FT.CUShort"    then return "unsigned short"
+    elseif tag == "ftypes.FT.CUInt"      then return "unsigned int"
+    elseif tag == "ftypes.FT.CULong"     then return "unsigned long"
+    elseif tag == "ftypes.FT.CULongLong" then return "unsigned long long"
+
+    elseif tag == "ftypes.FT.String"     then return "const char*"
 
     -- elseif tag == "ftypes.FT.String"     then return "string"
     -- elseif tag == "ftypes.FT.Pointer"    then return "pointer"
@@ -226,6 +233,8 @@ function ftypes.is_numeric(ft)
     elseif tag == "ftypes.FT.CUInt"      then return true
     elseif tag == "ftypes.FT.CULong"     then return true
     elseif tag == "ftypes.FT.CULongLong" then return true
+
+    elseif tag == "ftypes.FT.String"     then return false
     else
         return false
     end

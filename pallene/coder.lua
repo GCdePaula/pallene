@@ -1351,30 +1351,48 @@ gen_cmd["CallDyn"] = function(self, cmd, func)
     })
 end
 
-gen_cmd["ForeignCall"] = function(self, cmd, _func)
-    local function translate_to_c(dst, from_plntype, to_ctype, src)
-        -- local tag = to_type._tag
+gen_cmd["ForeignCall"] = function(self, cmd, func)
+    local function translate_to_c(dst, to_ctype, src)
+        local tag = to_ctype._tag
+        local src_value = self:c_value(src)
         if ftypes.is_numeric(to_ctype) then
             local cast = ftypes.to_ctype(to_ctype)
             local mov = util.render(
-                [[ $dst = ($cast) $src ]],
-                { dst = dst, cast = cast, src = src }
+                [[ $dst = ($cast) $src]],
+                { dst = dst, cast = cast, src = src_value }
             )
             return mov
+
+        elseif tag == "ftypes.FT.String" then
+            if src._tag == "ir.Value.String" then
+                local mov = util.render(
+                    [[ $dst = getstr($src)]],
+                    { dst = dst, src = src_value }
+                    )
+                return mov
+            elseif src._tag == "ir.Value.Nil" then
+                local mov = util.render(
+                    [[ $dst = NULL]], { dst = dst }
+                )
+                return mov
+          else
+              error "Impossible"
+          end
+
         else
             error("translate_to_c tag " .. tag .. " unimplemented")
         end
     end
 
     local function translate_to_pln(dst, from_ctype, to_plntype, src)
-        -- local tag = to_type._tag
         if types.is_numeric(to_plntype) then
             local cast = ctype(to_plntype)
             local mov = util.render(
-                [[ $dst = ($cast) $src ]],
+                [[ $dst = ($cast) $src]],
                 { dst = dst, cast = cast, src = src }
             )
             return mov
+
         else
             error("translate_to_pln tag " .. tag .. " unimplemented")
         end
@@ -1415,15 +1433,14 @@ gen_cmd["ForeignCall"] = function(self, cmd, _func)
     for k,farg in ipairs(fargs) do
         local var_name = c_arg_vars[k]
         if ftypes.include_args(farg.mod) then
-            local src = self:c_var(cmd.srcs[src_idx].id)
-            local translate = translate_to_c(var_name, nil, farg.ftype, src)
+            local src = cmd.srcs[src_idx]
+            local translate = translate_to_c(var_name, farg.ftype, src)
             table.insert(code, translate)
             src_idx = src_idx + 1
         end
 
         if ftypes.include_rets(farg.mod) then
           table.insert(extra_rets, var_name)
-
         end
     end
 
@@ -1669,6 +1686,37 @@ local function section_comment(msg)
     return table.concat(lines, "\n")
 end
 
+local function csig(ftype, name)
+    assert(ftype._tag == "ftypes.FT.FFunction")
+    local sig = {}
+
+    if ftype.fret_type then
+        local ret_type = ftypes.to_ctype(ftype.fret_type)
+        table.insert(sig, ret_type)
+    else
+        table.insert(sig, "void")
+    end
+
+    table.insert(sig, name)
+
+    local args = {}
+    for k,t in ipairs(ftype.farg_types) do
+        local arg_type = ftypes.to_ctype(t.ftype)
+        local ptr = ""
+        if ftypes.pass_address(t.mod) then
+            ptr = " *"
+        end
+        local c = util.render(
+            [[$t$ptr arg_$k]],
+            {t = arg_type, ptr = ptr, k = tostring(k)}
+        )
+        table.insert(args, c)
+    end
+    local arg_list = "(" .. table.concat(args, ", ") .. ");"
+    table.insert(sig, arg_list)
+    return table.concat(sig, " ")
+end
+
 function Coder:generate_module()
 
     local out = {}
@@ -1683,6 +1731,11 @@ function Coder:generate_module()
     local source_file = C.string(self.filename)
     local source_file_def = string.format("#define PALLENE_SOURCE_FILE %s\n", source_file)
     table.insert(out, source_file_def)
+
+    table.insert(out, section_comment("Foreign Functions"))
+    for name,f in pairs(self.module.ffunctions) do
+        table.insert(out, csig(f.ftype, name))
+    end
 
     table.insert(out, section_comment("Records"))
     for _, typ in ipairs(self.module.record_types) do

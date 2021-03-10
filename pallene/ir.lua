@@ -123,7 +123,6 @@ declare_type("Value", {
     String     = {"value"},
     LocalVar   = {"id"},
     Function   = {"id"},
-    FFunction  = {"name"},
 
     FFunction  = {"id"},
 })

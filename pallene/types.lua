@@ -27,6 +27,8 @@ declare_type("T", {
         "field_names", -- same order as the source type declaration
         "field_types", -- map { string => types.T }
     },
+
+    Nilable  = {"typ"},
 })
 
 function types.is_gc(t)
@@ -155,6 +157,14 @@ local function equivalent(t1, t2, is_gradual)
 
     if is_gradual and (tag1 == "types.T.Any" or tag2 == "types.T.Any") then
         return true
+
+    elseif tag2 == "types.T.Nilable" then
+        if tag1 == "types.T.Nil" then
+            return true
+        else
+            return equivalent(t1, t2.typ, is_gradual)
+        end
+
 
     elseif tag1 ~= tag2 then
         return false
